@@ -8,7 +8,7 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.services.ollama import OLLamaLLMService
 from pipecat.services.openai.stt import OpenAISTTService
-from pipecat.services.piper import PiperHttpTTSService
+from pipecat.services.piper.tts import PiperHttpTTSService
 from pipecat.transports.websocket.server import (
     WebsocketServerParams,
     WebsocketServerTransport,

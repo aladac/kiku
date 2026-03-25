@@ -18,12 +18,14 @@ services:
       - whisper-models:/root/.cache
 
   piper:
-    image: waveoffire/piper-tts-server:latest
+    build:
+      context: .
+      dockerfile: docker/piper/Dockerfile
     restart: unless-stopped
     ports:
       - "5000:5000"
     volumes:
-      - piper-models:/app/models
+      - piper-models:/data/models
 
   pipecat:
     build:
