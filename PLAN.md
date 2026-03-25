@@ -2,25 +2,25 @@
 
 ## Overview
 
-Self-hosted AI-powered IVR chatbot. Call a phone number, talk to an AI. All components run locally with no cloud AI dependencies.
+Self-hosted AI-powered IVR chatbot running entirely on junkpile. Call a phone number, talk to an AI. No cloud dependencies.
 
 ## Stack
 
-| Layer | Tool | Notes |
-|-------|------|-------|
-| SIP Trunk | VoIP.ms | DID number, SIP registration |
-| PBX | Asterisk (Docker) | SIP termination, AudioSocket |
-| Voice Framework | Pipecat | Pipeline orchestration |
-| STT | faster-whisper | GPU-accelerated on junkpile |
-| LLM | Ollama (llama3.2) | Already running on junkpile |
-| TTS | Piper | Already running via PSN |
+| Layer | Tool | Host | Notes |
+|-------|------|------|-------|
+| SIP Trunk | VoIP.ms | external | DID number, SIP registration |
+| PBX | Asterisk (Docker) | junkpile | SIP termination, AudioSocket |
+| Voice Framework | Pipecat (Docker) | junkpile | Pipeline orchestration |
+| STT | faster-whisper | junkpile | GPU-accelerated |
+| LLM | Ollama (llama3.2) | junkpile | Already running |
+| TTS | Piper | junkpile | Docker container |
 
 ## Architecture
 
 ```
 Phone -> VoIP.ms SIP -> Asterisk -> AudioSocket -> Pipecat
                                                      |
-                                               faster-whisper
+                                               faster-whisper (GPU)
                                                      |
                                                    Ollama
                                                      |
@@ -29,28 +29,31 @@ Phone -> VoIP.ms SIP -> Asterisk -> AudioSocket -> Pipecat
                                                AudioSocket -> Caller
 ```
 
+All containers on junkpile, networked via docker compose.
+
 ## Phases
 
-### Phase 1 - Local Voice Pipeline
+### Phase 1 - Voice Pipeline on Junkpile
 
-Get Pipecat wired to Ollama + Piper + faster-whisper without telephony. Test with microphone input/speaker output.
+Deploy Pipecat + faster-whisper + Piper as Docker containers on junkpile. Test via WebSocket from browser.
 
-- [ ] Python project setup (uv, pyproject.toml)
-- [ ] Install pipecat with ollama, piper, faster-whisper extras
-- [ ] Deploy faster-whisper on junkpile (Docker)
-- [ ] Write Pipecat pipeline: mic -> STT -> LLM -> TTS -> speaker
+- [ ] Docker compose with all services
+- [ ] faster-whisper container (GPU, whisper API)
+- [ ] Piper TTS container (HTTP API)
+- [ ] Pipecat container with pipeline app
+- [ ] WebSocket transport + simple HTML test client
 - [ ] Define system prompt for chatbot personality
-- [ ] Test end-to-end voice conversation locally
+- [ ] Test end-to-end voice conversation via browser
 
 ### Phase 2 - Asterisk + SIP
 
-Replace mic/speaker with phone audio via Asterisk AudioSocket.
+Add Asterisk container, replace WebSocket with AudioSocket transport.
 
-- [ ] Asterisk Docker container (docker-compose)
+- [ ] Asterisk container in compose
 - [ ] VoIP.ms account + DID number
 - [ ] SIP trunk config (pjsip.conf)
 - [ ] AudioSocket dialplan (extensions.conf)
-- [ ] Connect Pipecat AudioSocket transport to Asterisk
+- [ ] Switch Pipecat to AudioSocket transport
 - [ ] Test inbound call end-to-end
 
 ### Phase 3 - Polish
@@ -69,45 +72,48 @@ Replace mic/speaker with phone audio via Asterisk AudioSocket.
 - [ ] Metrics / call duration tracking
 - [ ] Web UI for conversation history
 
-## Infrastructure
-
-### junkpile (remote GPU host)
-
-- faster-whisper container
-- Ollama (already running)
-
-### local
-
-- Asterisk container
-- Pipecat app
-- Piper TTS (already running)
-
 ## Project Structure
 
 ```
 kiku/
   docker/
-    asterisk/
+    pipecat/
+      Dockerfile
+    piper/
+      Dockerfile
+    faster-whisper/
+      Dockerfile
+    asterisk/          # Phase 2
       Dockerfile
       pjsip.conf
       extensions.conf
-    faster-whisper/
-      Dockerfile
   src/
     kiku/
       __init__.py
       pipeline.py      # Pipecat pipeline
       config.py         # Settings
       prompts.py        # System prompts
+  client/
+    index.html          # Browser test client
   docker-compose.yml
   pyproject.toml
   README.md
   PLAN.md
 ```
 
+## Deployment
+
+All on junkpile via SSH. Docker compose up from the repo.
+
+```bash
+ssh junkpile "cd ~/kiku && docker compose up -d"
+```
+
 ## Key Decisions
 
+- **All on junkpile**: Single deployment target, GPU available for STT, Ollama already there
 - **Pipecat over LiveKit**: More control over telephony, Asterisk AudioSocket is battle-tested
 - **faster-whisper over Whisper**: 4x faster inference, lower VRAM
-- **Piper over Coqui**: Already deployed, low latency, good quality
+- **Piper HTTP over local**: Runs as separate container, reusable across services
 - **Ollama over direct model loading**: Already running, model management handled
+- **WebSocket for Phase 1**: Browser-testable without phone setup, easy to swap for AudioSocket

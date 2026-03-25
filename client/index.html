@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Kiku - Voice Chat</title>
+  <style>
+    body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; max-width: 600px; margin: 40px auto; padding: 20px; }
+    h1 { color: #4fc3f7; }
+    button { background: #4fc3f7; color: #1a1a1a; border: none; padding: 12px 24px; font-size: 16px; cursor: pointer; font-family: monospace; }
+    button:disabled { background: #555; cursor: not-allowed; }
+    #status { margin: 20px 0; color: #aaa; }
+    #log { background: #111; padding: 16px; height: 300px; overflow-y: auto; font-size: 13px; border: 1px solid #333; }
+    .user { color: #81c784; }
+    .assistant { color: #4fc3f7; }
+    .system { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Kiku</h1>
+  <button id="btn" onclick="toggle()">Connect</button>
+  <div id="status">Disconnected</div>
+  <div id="log"></div>
+
+  <script>
+    let ws, audioCtx, mediaStream, processor, playing = false;
+    const SAMPLE_RATE = 16000;
+    const btn = document.getElementById('btn');
+    const status = document.getElementById('status');
+    const log = document.getElementById('log');
+
+    function addLog(cls, msg) {
+      const d = document.createElement('div');
+      d.className = cls;
+      d.textContent = msg;
+      log.appendChild(d);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function toggle() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+        return;
+      }
+      await connect();
+    }
+
+    async function connect() {
+      const host = location.hostname || 'localhost';
+      const port = 8765;
+      ws = new WebSocket(`ws://${host}:${port}`);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = async () => {
+        status.textContent = 'Connected - speak into your mic';
+        btn.textContent = 'Disconnect';
+        addLog('system', '--- connected ---');
+        await startMic();
+      };
+
+      ws.onmessage = (e) => {
+        if (typeof e.data === 'string') {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'transcription') {
+              addLog('user', `You: ${msg.text}`);
+            } else if (msg.type === 'text') {
+              addLog('assistant', `Kiku: ${msg.text}`);
+            }
+          } catch {}
+        } else {
+          playAudio(e.data);
+        }
+      };
+
+      ws.onclose = () => {
+        status.textContent = 'Disconnected';
+        btn.textContent = 'Connect';
+        addLog('system', '--- disconnected ---');
+        stopMic();
+      };
+
+      ws.onerror = () => {
+        addLog('system', '--- connection error ---');
+      };
+    }
+
+    async function startMic() {
+      audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: SAMPLE_RATE, channelCount: 1 } });
+      const source = audioCtx.createMediaStreamSource(mediaStream);
+
+      await audioCtx.audioWorklet.addModule('data:text/javascript,' + encodeURIComponent(`
+        class Sender extends AudioWorkletProcessor {
+          process(inputs) {
+            const ch = inputs[0][0];
+            if (ch) this.port.postMessage(ch);
+            return true;
+          }
+        }
+        registerProcessor('sender', Sender);
+      `));
+
+      processor = new AudioWorkletNode(audioCtx, 'sender');
+      processor.port.onmessage = (e) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          const pcm = new Int16Array(e.data.length);
+          for (let i = 0; i < e.data.length; i++) {
+            pcm[i] = Math.max(-32768, Math.min(32767, e.data[i] * 32768));
+          }
+          ws.send(pcm.buffer);
+        }
+      };
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+    }
+
+    function stopMic() {
+      if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+      if (audioCtx) audioCtx.close();
+    }
+
+    function playAudio(data) {
+      if (!audioCtx || audioCtx.state === 'closed') return;
+      const view = new DataView(data);
+      let offset = 0;
+      // Skip WAV header if present
+      if (view.byteLength > 44 && view.getUint32(0, false) === 0x52494646) {
+        offset = 44;
+      }
+      const samples = new Float32Array((data.byteLength - offset) / 2);
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = view.getInt16(offset + i * 2, true) / 32768;
+      }
+      const buf = audioCtx.createBuffer(1, samples.length, SAMPLE_RATE);
+      buf.getChannelData(0).set(samples);
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(audioCtx.destination);
+      src.start();
+    }
+  </script>
+</body>
+</html>

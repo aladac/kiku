@@ -1,0 +1,13 @@
+[project]
+name = "kiku"
+version = "0.1.0"
+description = "AI-powered IVR chatbot using Ollama"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "pipecat-ai[silero,websocket]",
+    "ollama",
+    "python-dotenv",
+    "loguru",
+    "numpy",
+    "aiohttp",
+]

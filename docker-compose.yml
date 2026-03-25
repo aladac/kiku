@@ -1,0 +1,50 @@
+services:
+  faster-whisper:
+    image: fedirz/faster-whisper-server:latest-cuda
+    restart: unless-stopped
+    ports:
+      - "8100:8000"
+    environment:
+      - WHISPER__MODEL=Systran/faster-distil-whisper-large-v3
+      - WHISPER__DEVICE=cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - whisper-models:/root/.cache
+
+  piper:
+    image: waveoffire/piper-tts-server:latest
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - piper-models:/app/models
+
+  pipecat:
+    build:
+      context: .
+      dockerfile: docker/pipecat/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+      - OLLAMA_MODEL=llama3.2
+      - WHISPER_BASE_URL=http://faster-whisper:8000
+      - WHISPER_MODEL=Systran/faster-distil-whisper-large-v3
+      - PIPER_BASE_URL=http://piper:5000
+      - PIPER_VOICE=en_US-ryan-high
+    depends_on:
+      - faster-whisper
+      - piper
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  whisper-models:
+  piper-models:
